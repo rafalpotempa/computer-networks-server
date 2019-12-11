@@ -78,7 +78,7 @@ void summonDeamon(){
         exit(0);
     }
 
-    //unmask(0);
+    umask(0);
     openlog("cn-server-deamon", LOG_PID, LOG_DAEMON);
     syslog(LOG_INFO, "'cn-server-daemon' starting.\n");
 
