@@ -9,7 +9,9 @@
 #include <sys/stat.h>
 #include <syslog.h>
 
-const unsigned short int PORT = 1234;
+int detached = 0;
+int port = -1;
+
 const int QLEN = 10;
 pid_t id;
 pid_t sid;
@@ -20,16 +22,14 @@ struct sockaddr_in remAddress;
 int addrlen;
 char str[INET_ADDRSTRLEN];
 
-void sigchld_handler(int s)
+void signal_handler(int s)
 {
-    while (wait(NULL) > 0)
-        ;
+    return;
 }
 
 void sendMsg(char *message, int connectionfd)
 {
-    int messlen;
-    messlen = strlen(message);
+    int messlen = strlen(message) - 1;
     if (sendall(connectionfd, message, &messlen) == -1)
     {
         fprintf(stderr, "Only %d bytes was transferred because of an error!\n", messlen);
@@ -103,14 +103,21 @@ void detach_process(){
 
 void echo(int connectionfd){
     char buffer[255];
-    if (recv(connectionfd, buffer, sizeof(buffer), 0) != -1)
+    size_t size = recv(connectionfd, buffer, sizeof(buffer), 0);
+    if (size != -1)
     {
-        size_t size = recv(connectionfd, buffer, sizeof(buffer), 0);
         puts(buffer);
 
         sendMsg(buffer, connectionfd);
         *buffer = NULL;
     }
+}
+
+void handle_connection(int connectionfd){
+    if (!fork()){
+        echo(connectionfd);
+    }
+    close(connectionfd);
 }
 
 void listenAndServe(int fd) {
@@ -139,24 +146,44 @@ void listenAndServe(int fd) {
     //a similar function, inet_ntoa(remAddress.sin_addr), is now deprecated
     printf("Handling connection from: %s\n", str);
 
-    echo(connectionfd);
-    close(connectionfd);
+    handle_connection(connectionfd);
 }
 
-int main(void)
-{
-    detach_process();
+void parse_arguments(int argc, char* argv[]) {
+    if (argc > 1) {
+        for (int i = 1; i < argc; i++) {
+            if (!strcmp(argv[i], "-d")){
+                detached = 1;
+            }
+            if (atoi(argv[i]))
+                port = atoi(argv[i]);
+        }
+    }
+    
+    if (port == -1) {
+        printf("Please provide a port number.\n");
+        exit(1);
+    }
+    if (detached) {
+        printf("Detaching server to run on port %d...\n", port);
+        detach_process();
+    }
+}
 
-    //create a socket:
+int main(int argc, char* argv[])
+{
+    parse_arguments(argc, argv);
+
+    //create a socket
     if ((fd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
     {
         perror("socket");
-        exit(1);
+        exit(2);
     }
 
     //IP address and port number of the server:
     ownAddress.sin_family = AF_INET;         //AF_INET= IPv4
-    ownAddress.sin_port = htons(PORT);       //htons=change Host byte order TO Network byte order, Short data
+    ownAddress.sin_port = htons(port);       //htons=change Host byte order TO Network byte order, Short data
     ownAddress.sin_addr.s_addr = INADDR_ANY; //INADDR_ANY=listen on each
     //available network interface;
     //can also listen on a specific address
@@ -166,9 +193,9 @@ int main(void)
     if (bind(fd, (struct sockaddr*)&ownAddress, sizeof(struct sockaddr)) == -1)
     {
         perror("Failed bind()");
-        exit(2);
+        exit(3);
     }
-    printf("Server started at localhost:%d\n", PORT);    
+    printf("Server started at localhost:%d\n", port);    
     while(1) {
         listenAndServe(fd);
     }
