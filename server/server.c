@@ -2,7 +2,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h> // exit
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/errno.h>
 #include <sys/types.h>
@@ -63,7 +63,7 @@ int sendall(int fd, const char *data, int *len)
     return i == -1 ? -1 : 0;
 }
 
-void summonDeamon(){
+void detach_process(){
     id = fork();
 
     if (id < 0)
@@ -101,45 +101,19 @@ void summonDeamon(){
     close(STDERR_FILENO);
 }
 
-void Echo(int connectionfd){
-    static char buffer[255];
-    while (recv(connectionfd, buffer, sizeof(buffer), 0) != -1)
+void echo(int connectionfd){
+    char buffer[255];
+    if (recv(connectionfd, buffer, sizeof(buffer), 0) != -1)
     {
         size_t size = recv(connectionfd, buffer, sizeof(buffer), 0);
         puts(buffer);
 
         sendMsg(buffer, connectionfd);
         *buffer = NULL;
-        close(connectionfd); //close connection when finished with this client
     }
 }
 
-int main(void)
-{
-    summonDeamon();
-
-    //create a socket:
-    if ((fd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
-    {
-        perror("socket");
-        exit(1);
-    }
-
-    //IP address and port number of the server:
-    ownAddress.sin_family = AF_INET;         //AF_INET= IPv4
-    ownAddress.sin_port = htons(PORT);       //htons=change Host byte order TO Network byte order, Short data
-    ownAddress.sin_addr.s_addr = INADDR_ANY; //INADDR_ANY=listen on each
-    //available network interface;
-    //can also listen on a specific address
-    memset(&(ownAddress.sin_zero), '\0', 8);
-
-    //bind to the address and port:
-    if (bind(fd, (struct sockaddr *)&ownAddress, sizeof(struct sockaddr)) == -1)
-    {
-        perror("Failed bind()");
-        exit(2);
-    }
-
+void listenAndServe(int fd) {
     //listen (wait) for incoming connections from clients:
     if (listen(fd, 5) == -1) //5=backlog (waiting queue length), usually between 5 and 10
     {
@@ -165,10 +139,40 @@ int main(void)
     //a similar function, inet_ntoa(remAddress.sin_addr), is now deprecated
     printf("Handling connection from: %s\n", str);
 
-    Echo(connectionfd);
-
+    echo(connectionfd);
     close(connectionfd);
-    close(fd); //close server's socket when all server work is finished11
+}
+
+int main(void)
+{
+    detach_process();
+
+    //create a socket:
+    if ((fd = socket(PF_INET, SOCK_STREAM, 0)) == -1)
+    {
+        perror("socket");
+        exit(1);
+    }
+
+    //IP address and port number of the server:
+    ownAddress.sin_family = AF_INET;         //AF_INET= IPv4
+    ownAddress.sin_port = htons(PORT);       //htons=change Host byte order TO Network byte order, Short data
+    ownAddress.sin_addr.s_addr = INADDR_ANY; //INADDR_ANY=listen on each
+    //available network interface;
+    //can also listen on a specific address
+    memset(&(ownAddress.sin_zero), '\0', 8);
+
+    //bind to the address and port:
+    if (bind(fd, (struct sockaddr*)&ownAddress, sizeof(struct sockaddr)) == -1)
+    {
+        perror("Failed bind()");
+        exit(2);
+    }
+    printf("Server started at localhost:%d\n", PORT);    
+    while(1) {
+        listenAndServe(fd);
+    }
+    close(fd); //close server's socket when all server work is finished
 
     return 0;
 }
